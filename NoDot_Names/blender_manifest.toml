@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "nodot_names"
 version = "2.0.1"
 name = "NoDot Names"
-tagline = "Naming conventions, presets, validation, and batch rename for studios and game pipelines"
+tagline = "Naming conventions, presets, validation"
 maintainer = "Jordan Moss"
 type = "add-on"
 
@@ -13,4 +13,4 @@ license = ["SPDX:GPL-3.0-or-later"]
 
 copyright = ["2024 Jordan Moss"]
 
-tags = ["Pipeline", "Scene", "Object", "Naming"]
+tags = ["Pipeline", "Scene", "Object"]
