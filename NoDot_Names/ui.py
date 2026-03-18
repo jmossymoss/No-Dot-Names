@@ -8,7 +8,6 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from .constants import TRACKED_BLEND_DATA_COLLECTIONS
 from .editor_preset import apply_preset_to_editor
 from . import (
-    _ensure_scene_properties,
     _get_active_preset,
     _get_preferences,
     _on_live_renaming_toggled,
@@ -82,9 +81,9 @@ class NCT_PT_tools(Panel):
     bl_category = "Nodot"
 
     def draw(self, context):
-        _ensure_scene_properties()
         layout = self.layout
         scene = context.scene
+        nct = scene.nct
         prefs = _get_preferences()
 
         if prefs and hasattr(prefs, "enable_live_renaming"):
@@ -111,12 +110,12 @@ class NCT_PT_tools(Panel):
         valid_box = layout.box()
         valid_box.label(text="Project Validator", icon="VIEWZOOM")
         vcol = valid_box.column(align=True)
-        if hasattr(scene, "nct_validator_filter_foldout"):
+        if hasattr(nct, "validator_filter_foldout"):
             filter_header = vcol.row(align=True)
-            filter_open = bool(getattr(scene, "nct_validator_filter_foldout", False))
+            filter_open = bool(nct.validator_filter_foldout)
             filter_header.prop(
-                scene,
-                "nct_validator_filter_foldout",
+                nct,
+                "validator_filter_foldout",
                 text="Data Types",
                 emboss=False,
                 icon="TRIA_DOWN" if filter_open else "TRIA_RIGHT",
@@ -124,16 +123,16 @@ class NCT_PT_tools(Panel):
             if filter_open:
                 filter_items = []
                 for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
-                    prop_name = f"nct_validator_include_{collection_name}"
-                    if hasattr(scene, prop_name):
+                    prop_name = f"validator_include_{collection_name}"
+                    if hasattr(nct, prop_name):
                         filter_items.append((prop_name, collection_name.replace("_", " ")))
                 if filter_items:
                     grid = vcol.row(align=True)
                     columns = [grid.column(align=True), grid.column(align=True), grid.column(align=True)]
                     for idx, (prop_name, label) in enumerate(filter_items):
-                        collection_name = prop_name.removeprefix("nct_validator_include_")
+                        collection_name = prop_name.removeprefix("validator_include_")
                         columns[idx % 3].prop(
-                            scene,
+                            nct,
                             prop_name,
                             text=label,
                             icon=_icon_for_data_type(collection_name),
@@ -142,10 +141,9 @@ class NCT_PT_tools(Panel):
         row.operator(NCT_OT_validator_run.bl_idname, text="Run", icon="VIEWZOOM")
         row.operator(NCT_OT_fix_all_violations.bl_idname, text="Fix All", icon="CHECKMARK")
         row.operator(NCT_OT_validator_export_report.bl_idname, text="", icon="EXPORT")
-        if hasattr(scene, "nct_validation_report") and scene.nct_validation_report:
-            vcol.label(text=f"{len(scene.nct_validation_report)} violation(s)", icon="ERROR")
-            if hasattr(scene, "nct_validator_search_filter"):
-                vcol.prop(scene, "nct_validator_search_filter", text="", icon="VIEWZOOM")
+        if nct.validation_report:
+            vcol.label(text=f"{len(nct.validation_report)} violation(s)", icon="ERROR")
+            vcol.prop(nct, "validator_search_filter", text="", icon="VIEWZOOM")
             row = vcol.row(align=True)
             row.operator(NCT_OT_validator_select_all.bl_idname, text="All", icon="CHECKBOX_HLT")
             row.operator(NCT_OT_validator_deselect_all.bl_idname, text="None", icon="CHECKBOX_DEHLT")
@@ -153,14 +151,14 @@ class NCT_PT_tools(Panel):
             vcol.template_list(
                 "NCT_UL_validation_report",
                 "",
-                scene,
-                "nct_validation_report",
-                scene,
-                "nct_validation_report_index",
+                nct,
+                "validation_report",
+                nct,
+                "validation_report_index",
                 rows=6,
             )
-            idx = min(max(0, scene.nct_validation_report_index), len(scene.nct_validation_report) - 1)
-            item = scene.nct_validation_report[idx]
+            idx = min(max(0, nct.validation_report_index), len(nct.validation_report) - 1)
+            item = nct.validation_report[idx]
             vcol.label(text=item.message, icon="INFO")
         else:
             vcol.label(text="Run validator to scan for violations", icon="INFO")
@@ -168,27 +166,22 @@ class NCT_PT_tools(Panel):
         layout.separator()
         layout.label(text="Rename Tools", icon="SORTALPHA")
         affix_box = layout.box()
-        affix_open = bool(getattr(scene, "nct_affix_foldout", False))
+        affix_open = bool(nct.affix_foldout)
         header = affix_box.row(align=True)
         header.prop(
-            scene,
-            "nct_affix_foldout",
+            nct,
+            "affix_foldout",
             text="Affix Tools",
             emboss=False,
             icon="TRIA_DOWN" if affix_open else "TRIA_RIGHT",
         )
         if affix_open:
             acol = affix_box.column(align=True)
-            if hasattr(scene, "nct_affix_scope"):
-                acol.prop(scene, "nct_affix_scope", text="Scope")
-            if hasattr(scene, "nct_affix_prefix"):
-                acol.prop(scene, "nct_affix_prefix")
-            if hasattr(scene, "nct_affix_prefix_position"):
-                acol.prop(scene, "nct_affix_prefix_position", text="Prefix Placement")
-            if hasattr(scene, "nct_affix_suffix"):
-                acol.prop(scene, "nct_affix_suffix")
-            if hasattr(scene, "nct_affix_suffix_position"):
-                acol.prop(scene, "nct_affix_suffix_position", text="Suffix Placement")
+            acol.prop(nct, "affix_scope", text="Scope")
+            acol.prop(nct, "affix_prefix")
+            acol.prop(nct, "affix_prefix_position", text="Prefix Placement")
+            acol.prop(nct, "affix_suffix")
+            acol.prop(nct, "affix_suffix_position", text="Suffix Placement")
             row = acol.row(align=True)
             op = row.operator(NCT_OT_apply_affixes.bl_idname, text="Add Prefix", icon="PLUS")
             op.mode = "PREFIX"
@@ -196,81 +189,70 @@ class NCT_PT_tools(Panel):
             op.mode = "SUFFIX"
 
         duplicate_box = layout.box()
-        duplicate_open = bool(getattr(scene, "nct_duplicate_foldout", False))
+        duplicate_open = bool(nct.duplicate_foldout)
         header = duplicate_box.row(align=True)
         header.prop(
-            scene,
-            "nct_duplicate_foldout",
+            nct,
+            "duplicate_foldout",
             text="Duplicate + Replace",
             emboss=False,
             icon="TRIA_DOWN" if duplicate_open else "TRIA_RIGHT",
         )
         if duplicate_open:
             col = duplicate_box.column(align=True)
-            if hasattr(scene, "nct_find_text"):
-                col.prop(scene, "nct_find_text", text="Find")
-            if hasattr(scene, "nct_replace_text"):
-                col.prop(scene, "nct_replace_text", text="Replace")
-            if hasattr(scene, "nct_linked_data_duplicate"):
-                col.prop(scene, "nct_linked_data_duplicate", text="Linked Data")
+            col.prop(nct, "find_text", text="Find")
+            col.prop(nct, "replace_text", text="Replace")
+            col.prop(nct, "linked_data_duplicate", text="Linked Data")
             col.operator(NCT_OT_duplicate_replace.bl_idname, icon="DUPLICATE")
 
         hier_box = layout.box()
-        hier_open = bool(getattr(scene, "nct_hierarchy_foldout", False))
+        hier_open = bool(nct.hierarchy_foldout)
         header = hier_box.row(align=True)
         header.prop(
-            scene,
-            "nct_hierarchy_foldout",
+            nct,
+            "hierarchy_foldout",
             text="Hierarchy Rename",
             emboss=False,
             icon="TRIA_DOWN" if hier_open else "TRIA_RIGHT",
         )
         if hier_open:
             col = hier_box.column(align=True)
-            if hasattr(scene, "nct_hierarchy_parent_name"):
-                col.prop(scene, "nct_hierarchy_parent_name", text="Base Name")
-            if hasattr(scene, "nct_hierarchy_mode"):
-                col.prop(scene, "nct_hierarchy_mode", text="Mode")
-            if hasattr(scene, "nct_hierarchy_prefix"):
-                col.prop(scene, "nct_hierarchy_prefix", text="Prefix")
+            col.prop(nct, "hierarchy_parent_name", text="Base Name")
+            col.prop(nct, "hierarchy_mode", text="Mode")
+            col.prop(nct, "hierarchy_prefix", text="Prefix")
             col.operator(NCT_OT_hierarchy_rename.bl_idname, text="Rename Hierarchy", icon="OUTLINER")
 
         batch_box = layout.box()
-        batch_open = bool(getattr(scene, "nct_batch_foldout", False))
+        batch_open = bool(nct.batch_foldout)
         header = batch_box.row(align=True)
         header.prop(
-            scene,
-            "nct_batch_foldout",
+            nct,
+            "batch_foldout",
             text="Batch Rename",
             emboss=False,
             icon="TRIA_DOWN" if batch_open else "TRIA_RIGHT",
         )
         if batch_open:
             col = batch_box.column(align=True)
-            mode = getattr(scene, "nct_batch_mode", "TEMPLATE")
-            if hasattr(scene, "nct_batch_mode"):
-                col.prop(scene, "nct_batch_mode", text="Mode")
-            if hasattr(scene, "nct_batch_scope"):
-                col.prop(scene, "nct_batch_scope", text="Scope")
+            mode = nct.batch_mode
+            col.prop(nct, "batch_mode", text="Mode")
+            col.prop(nct, "batch_scope", text="Scope")
             if mode == "REGEX":
-                if hasattr(scene, "nct_batch_find"):
-                    col.prop(scene, "nct_batch_find", text="Find (regex)")
-                if hasattr(scene, "nct_batch_replace"):
-                    col.prop(scene, "nct_batch_replace", text="Replace")
+                col.prop(nct, "batch_find", text="Find (regex)")
+                col.prop(nct, "batch_replace", text="Replace")
             else:
-                if hasattr(scene, "nct_batch_template"):
-                    col.prop(scene, "nct_batch_template", text="Template")
+                col.prop(nct, "batch_template", text="Template")
             row = col.row(align=True)
             row.operator(NCT_OT_batch_rename_preview.bl_idname, icon="VIEWZOOM")
             row.operator(NCT_OT_batch_rename_apply.bl_idname, icon="EXPORT")
-            if hasattr(scene, "nct_batch_preview") and scene.nct_batch_preview:
+            if nct.batch_preview:
                 col.template_list(
                     "NCT_UL_batch_preview",
                     "",
-                    scene,
-                    "nct_batch_preview",
-                    scene,
-                    "nct_batch_preview_index",
+                    nct,
+                    "batch_preview",
+                    nct,
+                    "batch_preview_index",
                     rows=4,
                 )
 
@@ -323,9 +305,9 @@ class NamingConventionPreferences(AddonPreferences):
     )
 
     def draw(self, context):
-        _ensure_scene_properties()
         layout = self.layout
         scene = context.scene
+        nct = scene.nct
         col = layout.column(align=True)
         row = col.row(align=True)
         row.prop(self, "active_preset")
@@ -346,12 +328,12 @@ class NamingConventionPreferences(AddonPreferences):
         editor_box = layout.box()
         editor_box.label(text="Naming Convention Editor", icon="TEXT")
         ecol = editor_box.column(align=True)
-        ecol.prop(scene, "nct_editor_preset_name", text="Profile")
-        ecol.prop(scene, "nct_editor_separator_style", text="Separator")
-        if getattr(scene, "nct_editor_separator_style", "UNDERSCORE") == "CUSTOM":
-            ecol.prop(scene, "nct_editor_custom_separator", text="Custom")
-        ecol.prop(scene, "nct_editor_padding", text="Padding")
-        ecol.prop(scene, "nct_editor_case_mode", text="Case")
+        ecol.prop(nct, "editor_preset_name", text="Profile")
+        ecol.prop(nct, "editor_separator_style", text="Separator")
+        if nct.editor_separator_style == "CUSTOM":
+            ecol.prop(nct, "editor_custom_separator", text="Custom")
+        ecol.prop(nct, "editor_padding", text="Padding")
+        ecol.prop(nct, "editor_case_mode", text="Case")
 
         pcol = ecol.column(align=True)
         pcol.label(text="Prefix Rules", icon="COPY_ID")
@@ -359,23 +341,23 @@ class NamingConventionPreferences(AddonPreferences):
         shown_objects_mesh = False
         for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
             if collection_name == "meshes":
-                prefix_items.append(("nct_editor_prefix_objects", "objects + meshes"))
+                prefix_items.append(("editor_prefix_objects", "objects + meshes"))
                 shown_objects_mesh = True
                 continue
             if collection_name == "objects":
                 if not shown_objects_mesh:
-                    prefix_items.append(("nct_editor_prefix_objects", "objects + meshes"))
+                    prefix_items.append(("editor_prefix_objects", "objects + meshes"))
                 continue
-            prop_name = f"nct_editor_prefix_{collection_name}"
-            if hasattr(scene, prop_name):
+            prop_name = f"editor_prefix_{collection_name}"
+            if hasattr(nct, prop_name):
                 prefix_items.append((prop_name, collection_name.replace("_", " ")))
         if prefix_items:
             grid = pcol.row(align=True)
             columns = [grid.column(align=True), grid.column(align=True), grid.column(align=True)]
             for idx, (prop_name, label) in enumerate(prefix_items):
-                collection_name = "objects" if prop_name == "nct_editor_prefix_objects" else prop_name.removeprefix("nct_editor_prefix_")
+                collection_name = "objects" if prop_name == "editor_prefix_objects" else prop_name.removeprefix("editor_prefix_")
                 columns[idx % 3].prop(
-                    scene,
+                    nct,
                     prop_name,
                     text=label,
                     icon=_icon_for_data_type(collection_name),

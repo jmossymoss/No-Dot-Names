@@ -20,7 +20,7 @@
 bl_info = {
     "name": "NoDot Names",
     "author": "Jordan Moss",
-    "version": (2, 0, 1),
+    "version": (2, 0, 2),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > No.Dot",
     "description": (
@@ -39,8 +39,8 @@ import hashlib
 import re
 
 import bpy
-from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
-from bpy.types import AddonPreferences
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
+from bpy.types import AddonPreferences, PropertyGroup
 
 from .constants import IGNORE_NAME_PREFIXES, TRACKED_BLEND_DATA_COLLECTIONS, VALIDATOR_DEFAULT_INCLUDE
 from .core import (
@@ -71,7 +71,7 @@ def _get_preferences() -> AddonPreferences | None:
         context = getattr(bpy, "context", None)
         if context is None or getattr(context, "preferences", None) is None:
             return None
-        addon = context.preferences.addons.get(__name__)
+        addon = context.preferences.addons.get(__package__)
         if not addon:
             return None
         return addon.preferences
@@ -561,9 +561,12 @@ def _collect_violations(
 
 def _selected_validator_collections(scene) -> set[str]:
     selected: set[str] = set()
+    nct = getattr(scene, "nct", None)
+    if nct is None:
+        return set(TRACKED_BLEND_DATA_COLLECTIONS)  # Default: all when not yet registered
     for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
-        prop_name = f"nct_validator_include_{collection_name}"
-        if getattr(scene, prop_name, True):
+        prop_name = f"validator_include_{collection_name}"
+        if getattr(nct, prop_name, True):
             selected.add(collection_name)
     return selected
 
@@ -786,274 +789,6 @@ def _on_live_renaming_toggled(self, context):
             print(f"[NoDotNames] Live rename toggle failed: {exc!r}")
 
 
-def _ensure_scene_properties() -> None:
-    """Define scene properties if they are missing (partial registration guard)."""
-    if not hasattr(bpy.types.Scene, "nct_find_text"):
-        bpy.types.Scene.nct_find_text = StringProperty(
-            name="Find",
-            description="Text to find in duplicated object names before replacement",
-            default="_low",
-        )
-    if not hasattr(bpy.types.Scene, "nct_replace_text"):
-        bpy.types.Scene.nct_replace_text = StringProperty(
-            name="Replace",
-            description="Replacement text used in duplicated object names",
-            default="_high",
-        )
-    if not hasattr(bpy.types.Scene, "nct_affix_prefix"):
-        bpy.types.Scene.nct_affix_prefix = StringProperty(
-            name="Prefix",
-            description="Prefix to add to object names",
-            default="",
-            maxlen=64,
-        )
-    if not hasattr(bpy.types.Scene, "nct_affix_suffix"):
-        bpy.types.Scene.nct_affix_suffix = StringProperty(
-            name="Suffix",
-            description="Suffix to add before trailing numeric sequence (e.g. _low)",
-            default="",
-            maxlen=64,
-        )
-    if not hasattr(bpy.types.Scene, "nct_affix_scope"):
-        bpy.types.Scene.nct_affix_scope = EnumProperty(
-            name="Scope",
-            items=(
-                ("SELECTED", "Selected", "Only selected objects"),
-                ("ALL", "All", "All objects in file"),
-            ),
-            default="SELECTED",
-        )
-    if not hasattr(bpy.types.Scene, "nct_affix_prefix_position"):
-        bpy.types.Scene.nct_affix_prefix_position = EnumProperty(
-            name="Prefix Placement",
-            items=(
-                ("BEFORE_PRESET", "Before Preset Prefix", "Place custom prefix before preset prefix"),
-                ("AFTER_PRESET", "After Preset Prefix", "Place custom prefix after preset prefix"),
-            ),
-            default="AFTER_PRESET",
-        )
-    if not hasattr(bpy.types.Scene, "nct_affix_suffix_position"):
-        bpy.types.Scene.nct_affix_suffix_position = EnumProperty(
-            name="Suffix Placement",
-            items=(
-                ("BEFORE_NUMBER", "Before Number", "Place suffix before trailing numeric index"),
-                ("AFTER_NUMBER", "After Number", "Place suffix after trailing numeric index"),
-            ),
-            default="AFTER_NUMBER",
-        )
-    if not hasattr(bpy.types.Scene, "nct_linked_data_duplicate"):
-        bpy.types.Scene.nct_linked_data_duplicate = BoolProperty(
-            name="Linked Data",
-            description="Keep duplicated objects linked to the same object data",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_hierarchy_parent_name"):
-        bpy.types.Scene.nct_hierarchy_parent_name = StringProperty(
-            name="Base Name",
-            description="Root name for hierarchy (e.g. Arm_L, Spine, Prop_Chair)",
-            default="Root",
-            maxlen=64,
-        )
-    if not hasattr(bpy.types.Scene, "nct_hierarchy_mode"):
-        bpy.types.Scene.nct_hierarchy_mode = EnumProperty(
-            name="Mode",
-            description="Chain: sequential index for controls/bones. Branch: cascading part names",
-            items=(
-                ("CHAIN", "Chain", "Sequential index (Ctrl_Spine_01, Ctrl_Spine_02) - for control/bone chains"),
-                ("BRANCH", "Branch", "Cascading names (Arm_L, Arm_L_Upper, Arm_L_Hand) - for skeletal hierarchy"),
-            ),
-            default="BRANCH",
-        )
-    if not hasattr(bpy.types.Scene, "nct_hierarchy_prefix"):
-        bpy.types.Scene.nct_hierarchy_prefix = StringProperty(
-            name="Prefix",
-            description="Optional prefix (e.g. CTRL_, MCH_, DEF_). Leave empty to use preset",
-            default="",
-            maxlen=16,
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_mode"):
-        bpy.types.Scene.nct_batch_mode = EnumProperty(
-            name="Mode",
-            items=(
-                ("REGEX", "Regex", "Find/replace with regex"),
-                ("TEMPLATE", "Template", "Token-based template"),
-            ),
-            default="TEMPLATE",
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_scope"):
-        bpy.types.Scene.nct_batch_scope = EnumProperty(
-            name="Scope",
-            items=(
-                ("ALL", "All", "All datablocks"),
-                ("SELECTED", "Selected", "Selected objects only"),
-            ),
-            default="ALL",
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_find"):
-        bpy.types.Scene.nct_batch_find = StringProperty(
-            name="Find",
-            description=(
-                "Find text to replace. Plain text is literal. "
-                "For regex, wrap pattern in braces: {pattern}. "
-                "Examples: {\\.\\d{3}$}, {^(SM_|M_|T_)}, {(_low|_high)$}. "
-                "Use capture groups for replacements like \\1, \\2."
-            ),
-            default=r"{\.\d{3}$}",
-            maxlen=256,
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_replace"):
-        bpy.types.Scene.nct_batch_replace = StringProperty(
-            name="Replace",
-            description=(
-                "Replacement text for regex matches. Use backreferences like "
-                "\\\\1, \\\\2 from capture groups in Find. Examples: '_' or "
-                "'SM_\\\\1'. Leave empty to remove matches."
-            ),
-            default="_",
-            maxlen=256,
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_template"):
-        bpy.types.Scene.nct_batch_template = StringProperty(
-            name="Template",
-            description="Tokens: {type}, {basename}, {index}, {sep}",
-            default="{type}_{basename}_{index}",
-            maxlen=256,
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_preview"):
-        bpy.types.Scene.nct_batch_preview = CollectionProperty(type=NCT_PG_batch_preview_item)
-    if not hasattr(bpy.types.Scene, "nct_batch_preview_index"):
-        bpy.types.Scene.nct_batch_preview_index = IntProperty(default=0)
-    if not hasattr(bpy.types.Scene, "nct_validation_report"):
-        bpy.types.Scene.nct_validation_report = CollectionProperty(type=NCT_PG_violation_item)
-    if not hasattr(bpy.types.Scene, "nct_validation_report_index"):
-        bpy.types.Scene.nct_validation_report_index = IntProperty(default=0)
-    if not hasattr(bpy.types.Scene, "nct_validator_filter_foldout"):
-        bpy.types.Scene.nct_validator_filter_foldout = BoolProperty(
-            name="Validator Data Types",
-            description="Show/hide validator data-type filter options",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_validator_search_filter"):
-        bpy.types.Scene.nct_validator_search_filter = StringProperty(
-            name="Search",
-            description="Filter violations by name or collection type",
-            default="",
-            maxlen=128,
-        )
-    for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
-        prop_name = f"nct_validator_include_{collection_name}"
-        if not hasattr(bpy.types.Scene, prop_name):
-            setattr(
-                bpy.types.Scene,
-                prop_name,
-                BoolProperty(
-                    name=collection_name.replace("_", " ").title(),
-                    description=f"Include {collection_name.replace('_', ' ')} in validator checks/fixes",
-                    default=collection_name in VALIDATOR_DEFAULT_INCLUDE,
-                ),
-            )
-    if not hasattr(bpy.types.Scene, "nct_affix_foldout"):
-        bpy.types.Scene.nct_affix_foldout = BoolProperty(
-            name="Affix Tools",
-            description="Show/hide affix tools",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_duplicate_foldout"):
-        bpy.types.Scene.nct_duplicate_foldout = BoolProperty(
-            name="Duplicate + Replace",
-            description="Show/hide duplicate+replace tools",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_hierarchy_foldout"):
-        bpy.types.Scene.nct_hierarchy_foldout = BoolProperty(
-            name="Hierarchy Rename",
-            description="Show/hide hierarchy rename tools",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_batch_foldout"):
-        bpy.types.Scene.nct_batch_foldout = BoolProperty(
-            name="Batch Rename",
-            description="Show/hide batch rename tools",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_foldout"):
-        bpy.types.Scene.nct_editor_foldout = BoolProperty(
-            name="Naming Convention Editor",
-            description="Show/hide naming convention editor",
-            default=False,
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_preset_name"):
-        bpy.types.Scene.nct_editor_preset_name = StringProperty(
-            name="Profile Name",
-            description="Name of the convention profile being edited",
-            default="Studio Profile",
-            maxlen=64,
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_separator_style"):
-        bpy.types.Scene.nct_editor_separator_style = EnumProperty(
-            name="Separator",
-            items=(
-                ("UNDERSCORE", "Underscore (_)", ""),
-                ("DOT", "Dot (.)", ""),
-                ("DASH", "Dash (-)", ""),
-                ("SPACE", "Space ( )", ""),
-                ("CUSTOM", "Custom", ""),
-            ),
-            default="UNDERSCORE",
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_custom_separator"):
-        bpy.types.Scene.nct_editor_custom_separator = StringProperty(
-            name="Custom Separator",
-            default="_",
-            maxlen=8,
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_padding"):
-        bpy.types.Scene.nct_editor_padding = IntProperty(name="Padding", default=3, min=1, max=8)
-    if not hasattr(bpy.types.Scene, "nct_editor_case_mode"):
-        bpy.types.Scene.nct_editor_case_mode = EnumProperty(
-            name="Case",
-            items=(
-                ("PRESERVE", "Preserve", ""),
-                ("UPPER", "UPPER", ""),
-                ("LOWER", "lower", ""),
-                ("TITLE", "Title", ""),
-            ),
-            default="PRESERVE",
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_meshes"):
-        bpy.types.Scene.nct_editor_prefix_meshes = StringProperty(name="Meshes", default="SM_", maxlen=24)
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_materials"):
-        bpy.types.Scene.nct_editor_prefix_materials = StringProperty(name="Materials", default="M_", maxlen=24)
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_textures"):
-        bpy.types.Scene.nct_editor_prefix_textures = StringProperty(name="Textures", default="T_", maxlen=24)
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_images"):
-        bpy.types.Scene.nct_editor_prefix_images = StringProperty(name="Images", default="T_", maxlen=24)
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_objects"):
-        bpy.types.Scene.nct_editor_prefix_objects = StringProperty(
-            name="Objects + Mesh Data",
-            default="SM_",
-            maxlen=24,
-        )
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_armatures"):
-        bpy.types.Scene.nct_editor_prefix_armatures = StringProperty(name="Armatures", default="SK_", maxlen=24)
-    if not hasattr(bpy.types.Scene, "nct_editor_prefix_collections"):
-        bpy.types.Scene.nct_editor_prefix_collections = StringProperty(name="Collections", default="COL_", maxlen=24)
-    for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
-        if collection_name in {"meshes", "objects"}:
-            continue
-        prop_name = f"nct_editor_prefix_{collection_name}"
-        if not hasattr(bpy.types.Scene, prop_name):
-            setattr(
-                bpy.types.Scene,
-                prop_name,
-                StringProperty(
-                    name=collection_name.replace("_", " ").title(),
-                    default=DEFAULT_PREFIX_MAP.get(collection_name, ""),
-                    maxlen=24,
-                ),
-            )
-
-
 from .ops import (
     NCT_OT_duplicate_replace,
     NCT_OT_apply_affixes,
@@ -1081,6 +816,235 @@ from .ops import (
 )
 
 
+class NCT_PG_scene_settings(PropertyGroup):
+    """Unified scene settings for NoDot Names (Blender Extensions compliant)."""
+
+    find_text: StringProperty(
+        name="Find",
+        description="Text to find in duplicated object names before replacement",
+        default="_low",
+    )
+    replace_text: StringProperty(
+        name="Replace",
+        description="Replacement text used in duplicated object names",
+        default="_high",
+    )
+    affix_prefix: StringProperty(
+        name="Prefix",
+        description="Prefix to add to object names",
+        default="",
+        maxlen=64,
+    )
+    affix_suffix: StringProperty(
+        name="Suffix",
+        description="Suffix to add before trailing numeric sequence (e.g. _low)",
+        default="",
+        maxlen=64,
+    )
+    affix_scope: EnumProperty(
+        name="Scope",
+        items=(
+            ("SELECTED", "Selected", "Only selected objects"),
+            ("ALL", "All", "All objects in file"),
+        ),
+        default="SELECTED",
+    )
+    affix_prefix_position: EnumProperty(
+        name="Prefix Placement",
+        items=(
+            ("BEFORE_PRESET", "Before Preset Prefix", "Place custom prefix before preset prefix"),
+            ("AFTER_PRESET", "After Preset Prefix", "Place custom prefix after preset prefix"),
+        ),
+        default="AFTER_PRESET",
+    )
+    affix_suffix_position: EnumProperty(
+        name="Suffix Placement",
+        items=(
+            ("BEFORE_NUMBER", "Before Number", "Place suffix before trailing numeric index"),
+            ("AFTER_NUMBER", "After Number", "Place suffix after trailing numeric index"),
+        ),
+        default="AFTER_NUMBER",
+    )
+    linked_data_duplicate: BoolProperty(
+        name="Linked Data",
+        description="Keep duplicated objects linked to the same object data",
+        default=False,
+    )
+    hierarchy_parent_name: StringProperty(
+        name="Base Name",
+        description="Root name for hierarchy (e.g. Arm_L, Spine, Prop_Chair)",
+        default="Root",
+        maxlen=64,
+    )
+    hierarchy_mode: EnumProperty(
+        name="Mode",
+        description="Chain: sequential index for controls/bones. Branch: cascading part names",
+        items=(
+            ("CHAIN", "Chain", "Sequential index (Ctrl_Spine_01, Ctrl_Spine_02) - for control/bone chains"),
+            ("BRANCH", "Branch", "Cascading names (Arm_L, Arm_L_Upper, Arm_L_Hand) - for skeletal hierarchy"),
+        ),
+        default="BRANCH",
+    )
+    hierarchy_prefix: StringProperty(
+        name="Prefix",
+        description="Optional prefix (e.g. CTRL_, MCH_, DEF_). Leave empty to use preset",
+        default="",
+        maxlen=16,
+    )
+    batch_mode: EnumProperty(
+        name="Mode",
+        items=(
+            ("REGEX", "Regex", "Find/replace with regex"),
+            ("TEMPLATE", "Template", "Token-based template"),
+        ),
+        default="TEMPLATE",
+    )
+    batch_scope: EnumProperty(
+        name="Scope",
+        items=(
+            ("ALL", "All", "All datablocks"),
+            ("SELECTED", "Selected", "Selected objects only"),
+        ),
+        default="ALL",
+    )
+    batch_find: StringProperty(
+        name="Find",
+        description=(
+            "Find text to replace. Plain text is literal. "
+            "For regex, wrap pattern in braces: {pattern}. "
+            "Examples: {\\.\\d{3}$}, {^(SM_|M_|T_)}, {(_low|_high)$}. "
+            "Use capture groups for replacements like \\1, \\2."
+        ),
+        default=r"{\.\d{3}$}",
+        maxlen=256,
+    )
+    batch_replace: StringProperty(
+        name="Replace",
+        description=(
+            "Replacement text for regex matches. Use backreferences like "
+            "\\\\1, \\\\2 from capture groups in Find. Examples: '_' or "
+            "'SM_\\\\1'. Leave empty to remove matches."
+        ),
+        default="_",
+        maxlen=256,
+    )
+    batch_template: StringProperty(
+        name="Template",
+        description="Tokens: {type}, {basename}, {index}, {sep}",
+        default="{type}_{basename}_{index}",
+        maxlen=256,
+    )
+    batch_preview: CollectionProperty(type=NCT_PG_batch_preview_item)
+    batch_preview_index: IntProperty(default=0)
+    validation_report: CollectionProperty(type=NCT_PG_violation_item)
+    validation_report_index: IntProperty(default=0)
+    validator_filter_foldout: BoolProperty(
+        name="Validator Data Types",
+        description="Show/hide validator data-type filter options",
+        default=False,
+    )
+    validator_search_filter: StringProperty(
+        name="Search",
+        description="Filter violations by name or collection type",
+        default="",
+        maxlen=128,
+    )
+    affix_foldout: BoolProperty(
+        name="Affix Tools",
+        description="Show/hide affix tools",
+        default=False,
+    )
+    duplicate_foldout: BoolProperty(
+        name="Duplicate + Replace",
+        description="Show/hide duplicate+replace tools",
+        default=False,
+    )
+    hierarchy_foldout: BoolProperty(
+        name="Hierarchy Rename",
+        description="Show/hide hierarchy rename tools",
+        default=False,
+    )
+    batch_foldout: BoolProperty(
+        name="Batch Rename",
+        description="Show/hide batch rename tools",
+        default=False,
+    )
+    editor_foldout: BoolProperty(
+        name="Naming Convention Editor",
+        description="Show/hide naming convention editor",
+        default=False,
+    )
+    editor_preset_name: StringProperty(
+        name="Profile Name",
+        description="Name of the convention profile being edited",
+        default="Studio Profile",
+        maxlen=64,
+    )
+    editor_separator_style: EnumProperty(
+        name="Separator",
+        items=(
+            ("UNDERSCORE", "Underscore (_)", ""),
+            ("DOT", "Dot (.)", ""),
+            ("DASH", "Dash (-)", ""),
+            ("SPACE", "Space ( )", ""),
+            ("CUSTOM", "Custom", ""),
+        ),
+        default="UNDERSCORE",
+    )
+    editor_custom_separator: StringProperty(
+        name="Custom Separator",
+        default="_",
+        maxlen=8,
+    )
+    editor_padding: IntProperty(name="Padding", default=3, min=1, max=8)
+    editor_case_mode: EnumProperty(
+        name="Case",
+        items=(
+            ("PRESERVE", "Preserve", ""),
+            ("UPPER", "UPPER", ""),
+            ("LOWER", "lower", ""),
+            ("TITLE", "Title", ""),
+        ),
+        default="PRESERVE",
+    )
+    editor_prefix_meshes: StringProperty(name="Meshes", default="SM_", maxlen=24)
+    editor_prefix_materials: StringProperty(name="Materials", default="M_", maxlen=24)
+    editor_prefix_textures: StringProperty(name="Textures", default="T_", maxlen=24)
+    editor_prefix_images: StringProperty(name="Images", default="T_", maxlen=24)
+    editor_prefix_objects: StringProperty(
+        name="Objects + Mesh Data",
+        default="SM_",
+        maxlen=24,
+    )
+    editor_prefix_armatures: StringProperty(name="Armatures", default="SK_", maxlen=24)
+    editor_prefix_collections: StringProperty(name="Collections", default="COL_", maxlen=24)
+
+
+def _init_scene_settings_dynamic_props() -> None:
+    """Add dynamic validator_include and editor_prefix props for tracked collections.
+    Blender's RNA system requires properties in __annotations__ for registration;
+    setattr() alone does not register properties with RNA."""
+    ann = NCT_PG_scene_settings.__annotations__
+    for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
+        prop_name = f"validator_include_{collection_name}"
+        if prop_name not in ann:
+            ann[prop_name] = BoolProperty(
+                name=collection_name.replace("_", " ").title(),
+                description=f"Include {collection_name.replace('_', ' ')} in validator checks/fixes",
+                default=collection_name in VALIDATOR_DEFAULT_INCLUDE,
+            )
+    for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
+        if collection_name in {"meshes", "objects"}:
+            continue
+        prop_name = f"editor_prefix_{collection_name}"
+        if prop_name not in ann:
+            ann[prop_name] = StringProperty(
+                name=collection_name.replace("_", " ").title(),
+                default=DEFAULT_PREFIX_MAP.get(collection_name, ""),
+                maxlen=24,
+            )
+
+
 def _preset_enum_items(self, context):
     items = [("CUSTOM", "Custom", "Use settings below")]
     for k in BUILTIN_PRESETS:
@@ -1102,6 +1066,7 @@ from .ui import NCT_PT_tools, NamingConventionPreferences
 CLASSES = (
     NCT_PG_batch_preview_item,
     NCT_PG_violation_item,
+    NCT_PG_scene_settings,
     NCT_UL_batch_preview,
     NCT_UL_validation_report,
     NCT_OT_batch_rename_apply,
@@ -1129,9 +1094,10 @@ CLASSES = (
 
 
 def register():
+    _init_scene_settings_dynamic_props()
     for cls in CLASSES:
         bpy.utils.register_class(cls)
-    _ensure_scene_properties()
+    bpy.types.Scene.nct = PointerProperty(type=NCT_PG_scene_settings)
     _reset_pointer_cache()
     if not bpy.app.timers.is_registered(_live_timer):
         bpy.app.timers.register(_live_timer, first_interval=0.35, persistent=True)
@@ -1141,55 +1107,7 @@ def unregister():
     if bpy.app.timers.is_registered(_live_timer):
         bpy.app.timers.unregister(_live_timer)
     _STATE["cache"] = {}
-    for prop_name in (
-        "nct_find_text",
-        "nct_replace_text",
-        "nct_affix_prefix",
-        "nct_affix_suffix",
-        "nct_affix_scope",
-        "nct_affix_prefix_position",
-        "nct_affix_suffix_position",
-        "nct_linked_data_duplicate",
-        "nct_hierarchy_parent_name",
-        "nct_hierarchy_mode",
-        "nct_hierarchy_prefix",
-        "nct_batch_mode",
-        "nct_batch_scope",
-        "nct_batch_find",
-        "nct_batch_replace",
-        "nct_batch_template",
-        "nct_batch_preview",
-        "nct_batch_preview_index",
-        "nct_validation_report",
-        "nct_validation_report_index",
-        "nct_validator_filter_foldout",
-        "nct_validator_search_filter",
-        "nct_affix_foldout",
-        "nct_duplicate_foldout",
-        "nct_hierarchy_foldout",
-        "nct_batch_foldout",
-        "nct_editor_foldout",
-        "nct_editor_preset_name",
-        "nct_editor_separator_style",
-        "nct_editor_custom_separator",
-        "nct_editor_padding",
-        "nct_editor_case_mode",
-        "nct_editor_prefix_meshes",
-        "nct_editor_prefix_materials",
-        "nct_editor_prefix_textures",
-        "nct_editor_prefix_images",
-        "nct_editor_prefix_objects",
-        "nct_editor_prefix_armatures",
-        "nct_editor_prefix_collections",
-    ):
-        if hasattr(bpy.types.Scene, prop_name):
-            delattr(bpy.types.Scene, prop_name)
-    for collection_name in TRACKED_BLEND_DATA_COLLECTIONS:
-        prop_name = f"nct_editor_prefix_{collection_name}"
-        if hasattr(bpy.types.Scene, prop_name):
-            delattr(bpy.types.Scene, prop_name)
-        include_prop = f"nct_validator_include_{collection_name}"
-        if hasattr(bpy.types.Scene, include_prop):
-            delattr(bpy.types.Scene, include_prop)
+    if hasattr(bpy.types.Scene, "nct"):
+        del bpy.types.Scene.nct
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

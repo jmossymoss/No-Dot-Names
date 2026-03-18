@@ -19,7 +19,6 @@ from . import (
     _split_suffix,
     _strip_known_prefix,
     _collect_violations,
-    _ensure_scene_properties,
     _expected_name_for_preset,
     _get_active_preset,
     _get_preferences,
@@ -64,9 +63,10 @@ class NCT_OT_duplicate_replace(Operator):
         preferences = _get_preferences()
         options = _build_options(preferences) if preferences else NamingOptions()
         scene = context.scene
-        find_text = scene.nct_find_text
-        replace_text = scene.nct_replace_text
-        linked_data = scene.nct_linked_data_duplicate
+        nct = scene.nct
+        find_text = nct.find_text
+        replace_text = nct.replace_text
+        linked_data = nct.linked_data_duplicate
 
         existing_names = {obj.name for obj in bpy.data.objects}
         new_objects = []
@@ -116,13 +116,13 @@ class NCT_OT_apply_affixes(Operator):
     )
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
-        raw_prefix = (getattr(scene, "nct_affix_prefix", "") or "").strip()
-        raw_suffix = (getattr(scene, "nct_affix_suffix", "") or "").strip()
+        nct = scene.nct
+        raw_prefix = (nct.affix_prefix or "").strip()
+        raw_suffix = (nct.affix_suffix or "").strip()
         prefix = raw_prefix if self.mode in {"PREFIX", "BOTH"} else ""
         suffix = raw_suffix if self.mode in {"SUFFIX", "BOTH"} else ""
-        scope = getattr(scene, "nct_affix_scope", "SELECTED")
+        scope = nct.affix_scope
 
         if not prefix and not suffix:
             self.report({"WARNING"}, "Enter a prefix first" if self.mode == "PREFIX" else "Enter a suffix first")
@@ -132,8 +132,8 @@ class NCT_OT_apply_affixes(Operator):
         options = _build_options(preferences) if preferences else NamingOptions()
         active_preset = _get_active_preset(preferences) if preferences else NamingPreset()
         preset_prefix = active_preset.prefix_map.get("objects", "") or active_preset.prefix_map.get("meshes", "")
-        prefix_position = getattr(scene, "nct_affix_prefix_position", "BEFORE_PRESET")
-        suffix_position = getattr(scene, "nct_affix_suffix_position", "BEFORE_NUMBER")
+        prefix_position = nct.affix_prefix_position
+        suffix_position = nct.affix_suffix_position
         targets = list(context.selected_objects) if scope == "SELECTED" else list(bpy.data.objects)
         if not targets:
             self.report({"WARNING"}, "No target objects found")
@@ -226,9 +226,10 @@ class NCT_OT_hierarchy_rename(Operator):
             self.report({"WARNING"}, "Select at least one root object (no parent)")
             return {"CANCELLED"}
         scene = context.scene
-        base_name = (getattr(scene, "nct_hierarchy_parent_name", "") or "Root").strip() or "Root"
-        mode = getattr(scene, "nct_hierarchy_mode", "BRANCH")
-        prefix_override = (getattr(scene, "nct_hierarchy_prefix", "") or "").strip()
+        nct = scene.nct
+        base_name = (nct.hierarchy_parent_name or "Root").strip() or "Root"
+        mode = nct.hierarchy_mode
+        prefix_override = (nct.hierarchy_prefix or "").strip()
         preferences = _get_preferences()
         preset = _get_active_preset(preferences) if preferences else NamingPreset()
         options = NamingOptions(
@@ -315,14 +316,14 @@ class NCT_OT_batch_rename_preview(Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
-        scene.nct_batch_preview.clear()
-        mode = getattr(scene, "nct_batch_mode", "TEMPLATE")
-        find_pattern = getattr(scene, "nct_batch_find", "") or ""
-        replace_pattern = getattr(scene, "nct_batch_replace", "") or ""
-        template = getattr(scene, "nct_batch_template", "{type}_{basename}_{index}") or "{type}_{basename}_{index}"
-        use_selected = getattr(scene, "nct_batch_scope", "ALL") == "SELECTED"
+        nct = scene.nct
+        nct.batch_preview.clear()
+        mode = nct.batch_mode
+        find_pattern = nct.batch_find or ""
+        replace_pattern = nct.batch_replace or ""
+        template = nct.batch_template or "{type}_{basename}_{index}"
+        use_selected = nct.batch_scope == "SELECTED"
         preferences = _get_preferences()
         options = _build_options(preferences) if preferences else NamingOptions()
         type_tokens = {"meshes": "SM", "materials": "M", "textures": "T", "images": "T", "objects": "Obj", "armatures": "SK", "collections": "COL"}
@@ -343,11 +344,11 @@ class NCT_OT_batch_rename_preview(Operator):
                         template, type_token=tok, basename=base or "Item", index=i + 1, separator=options.separator, padding=options.padding
                     )
                 if new_name and new_name != item.name:
-                    entry = scene.nct_batch_preview.add()
+                    entry = nct.batch_preview.add()
                     entry.old_name = item.name
                     entry.new_name = new_name
                     entry.collection_name = coll_name
-        self.report({"INFO"}, f"Preview: {len(scene.nct_batch_preview)} rename(s)")
+        self.report({"INFO"}, f"Preview: {len(nct.batch_preview)} rename(s)")
         return {"FINISHED"}
 
 
@@ -358,13 +359,13 @@ class NCT_OT_batch_rename_apply(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
+        nct = scene.nct
         preferences = _get_preferences()
         options = _build_options(preferences) if preferences else NamingOptions()
         applied = 0
         taken_by_coll: dict[str, set[str]] = {}
-        for entry in scene.nct_batch_preview:
+        for entry in nct.batch_preview:
             coll = getattr(bpy.data, entry.collection_name, None)
             if not coll:
                 continue
@@ -378,7 +379,7 @@ class NCT_OT_batch_rename_apply(Operator):
                 item.name = final
                 taken.add(final)
                 applied += 1
-        scene.nct_batch_preview.clear()
+        nct.batch_preview.clear()
         _reset_pointer_cache()
         self.report({"INFO"}, f"Applied {applied} rename(s)")
         return {"FINISHED"}
@@ -386,11 +387,7 @@ class NCT_OT_batch_rename_apply(Operator):
 
 class NCT_UL_batch_preview(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {"DEFAULT", "COMPACT"}:
-            layout.label(text=f"{item.old_name} -> {item.new_name}", icon="SORTALPHA")
-        elif self.layout_type == "GRID":
-            layout.alignment = "CENTER"
-            layout.label(text=item.new_name, icon="SORTALPHA")
+        layout.label(text=f"{item.old_name} -> {item.new_name}", icon="SORTALPHA")
 
 
 class NCT_OT_preset_save(Operator):
@@ -440,19 +437,14 @@ class NCT_PG_violation_item(PropertyGroup):
 
 class NCT_UL_validation_report(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {"DEFAULT", "COMPACT"}:
-            row = layout.row(align=True)
-            row.prop(item, "selected", text="", emboss=False, icon="CHECKMARK" if item.selected else "CHECKBOX_DEHLT")
-            row.label(text=f"[{item.collection_name}] {item.item_name}", icon="ERROR")
-            row.label(text=f"-> {item.expected_name}")
-        elif self.layout_type == "GRID":
-            layout.alignment = "CENTER"
-            layout.prop(item, "selected", text="", emboss=False)
-            layout.label(text=item.item_name, icon="ERROR")
+        row = layout.row(align=True)
+        row.prop(item, "selected", text="", emboss=False, icon="CHECKMARK" if item.selected else "CHECKBOX_DEHLT")
+        row.label(text=f"[{item.collection_name}] {item.item_name}", icon="ERROR")
+        row.label(text=f"-> {item.expected_name}")
 
     def filter_items(self, context, data, property):
         items = getattr(data, property)
-        search = (getattr(data, "nct_validator_search_filter", "") or "").strip().lower()
+        search = (getattr(data, "validator_search_filter", "") or "").strip().lower()
         if not search:
             return [], []  # Default: show all
         filtered = [
@@ -466,21 +458,21 @@ class NCT_UL_validation_report(UIList):
 
 
 def _refresh_validator_report(context) -> int:
-    _ensure_scene_properties()
     scene = context.scene
-    scene.nct_validation_report.clear()
+    nct = scene.nct
+    nct.validation_report.clear()
     preferences = _get_preferences()
     selected = _selected_validator_collections(scene)
     violations = _collect_violations(preferences, selected) if preferences else []
     for coll_name, item_name, expected_name, message in violations:
-        row = scene.nct_validation_report.add()
+        row = nct.validation_report.add()
         row.collection_name = coll_name
         row.item_name = item_name
         row.expected_name = expected_name
         row.message = message
         row.selected = False
-    scene.nct_validation_report_index = 0
-    return len(scene.nct_validation_report)
+    nct.validation_report_index = 0
+    return len(nct.validation_report)
 
 
 class NCT_OT_validator_run(Operator):
@@ -502,9 +494,9 @@ class NCT_OT_fix_selected_violation(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
-        report = scene.nct_validation_report
+        nct = scene.nct
+        report = nct.validation_report
         selected_items = [r for r in report if getattr(r, "selected", False)]
         if not selected_items:
             self.report({"WARNING"}, "Select one or more violations (use checkboxes)")
@@ -548,9 +540,9 @@ class NCT_OT_validator_select_all(Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
-        for item in scene.nct_validation_report:
+        nct = scene.nct
+        for item in nct.validation_report:
             item.selected = True
         return {"FINISHED"}
 
@@ -562,9 +554,9 @@ class NCT_OT_validator_deselect_all(Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        _ensure_scene_properties()
         scene = context.scene
-        for item in scene.nct_validation_report:
+        nct = scene.nct
+        for item in nct.validation_report:
             item.selected = False
         return {"FINISHED"}
 
@@ -586,7 +578,8 @@ class NCT_OT_validator_export_report(Operator):
 
     def execute(self, context):
         scene = context.scene
-        report = getattr(scene, "nct_validation_report", None)
+        nct = getattr(scene, "nct", None)
+        report = getattr(nct, "validation_report", None) if nct else None
         if not report:
             self.report({"WARNING"}, "Run validator first")
             return {"CANCELLED"}
