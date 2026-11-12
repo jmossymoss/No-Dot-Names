@@ -115,3 +115,18 @@ Export and import naming profiles as `.ndot` files to share across teams. Use **
 ## License
 
 GNU General Public License v3 or later. See [LICENSE](LICENSE).
+
+## Bone renaming (v2.0.3)
+
+Live Rename now also covers bones. New bones from extrude, duplicate, subdivide etc.
+are renamed on the fly in Edit Mode (`Bone.001` -> `Bone_01`, extruding again -> `Bone_02`).
+
+Settings (N-panel > Nodot, under the Live Rename toggle, and in Preferences):
+- **Live Rename Bones**: on/off (only runs while Live Rename is ON)
+- **Separator** / **Pad**: default `_` and 2 digits -> `_01`
+- **Keep .L/.R at End**: `Arm.L.001` -> `Arm_01.L` so X-Mirror/Symmetrize still pair sides
+- **Fix Selected / Fix All**: converts existing `.001`-style bone names in a rig
+
+Renames go through Blender's bone rename, so vertex groups, constraints, drivers and
+action channels are updated too. Rigs already in a file are not renamed until you
+press Fix.

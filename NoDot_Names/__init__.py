@@ -20,7 +20,7 @@
 bl_info = {
     "name": "NoDot Names",
     "author": "Jordan Moss",
-    "version": (2, 0, 2),
+    "version": (2, 0, 3),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > No.Dot",
     "description": (
@@ -52,6 +52,7 @@ from .core import (
     expand_rename_template,
     validate_name_against_convention,
 )
+from .bones import live_rename_bones, reset_bone_cache
 from .presets import (
     BUILTIN_PRESETS,
     preset_from_dict,
@@ -645,6 +646,8 @@ def _normalize_new_ids_only() -> int:
                 current_names = {item.as_pointer(): item.name for item in collection}
             cache[collection_name] = current_ptrs
             name_cache[collection_name] = current_names
+        if getattr(preferences, "live_rename_bones", True):
+            renamed += live_rename_bones(bpy.data, preferences, is_ignored=_is_ignored_name)
     finally:
         _STATE["lock"] = False
     return renamed
@@ -782,6 +785,7 @@ def _live_timer():
 def _on_live_renaming_toggled(self, context):
     """Refresh caches and normalize when live-rename gets enabled."""
     _reset_pointer_cache()
+    reset_bone_cache(bpy.data)
     if getattr(self, "enable_live_renaming", False):
         try:
             _normalize_all_ids()
@@ -790,6 +794,7 @@ def _on_live_renaming_toggled(self, context):
 
 
 from .ops import (
+    NCT_OT_normalize_bones,
     NCT_OT_duplicate_replace,
     NCT_OT_apply_affixes,
     NCT_OT_fix_all_violations,
@@ -1082,6 +1087,7 @@ CLASSES = (
     NCT_OT_validator_select_all,
     NCT_OT_validator_deselect_all,
     NCT_OT_hierarchy_rename,
+    NCT_OT_normalize_bones,
     NCT_OT_preset_delete,
     NCT_OT_preset_import,
     NCT_OT_preset_save,
@@ -1099,6 +1105,7 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.nct = PointerProperty(type=NCT_PG_scene_settings)
     _reset_pointer_cache()
+    reset_bone_cache(bpy.data)
     if not bpy.app.timers.is_registered(_live_timer):
         bpy.app.timers.register(_live_timer, first_interval=0.35, persistent=True)
 
