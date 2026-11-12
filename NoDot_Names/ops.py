@@ -8,6 +8,7 @@ from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import Operator, PropertyGroup, UIList
 
 from .core import NamingOptions, NamingPreset, apply_case, expand_rename_template
+from .bones import bone_settings_from_prefs, rename_bones_in_armature, reset_bone_cache
 from .editor_preset import apply_preset_to_editor, build_editor_preset
 from .profile_io import export_profile_file, import_profile_file
 from .presets import BUILTIN_PRESETS, preset_to_dict
@@ -45,6 +46,47 @@ class NCT_OT_normalize_existing(Operator):
     def execute(self, context):
         renamed = _normalize_all_ids()
         self.report({"INFO"}, f"Renamed {renamed} datablock(s)")
+        return {"FINISHED"}
+
+
+class NCT_OT_normalize_bones(Operator):
+    bl_idname = "nct.normalize_bones"
+    bl_label = "Fix Existing Bone Names"
+    bl_description = (
+        "Convert Blender-style bone suffixes (Bone.001) to the bone naming scheme "
+        "(Bone_01). Vertex groups, constraints and animation follow the rename"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    scope: EnumProperty(
+        name="Scope",
+        items=(
+            ("SELECTED", "Selected Armatures", "Armatures of the selected/active objects"),
+            ("ALL", "All Armatures", "Every armature in the file"),
+        ),
+        default="SELECTED",
+    )
+
+    def execute(self, context):
+        prefs = _get_preferences()
+        settings = bone_settings_from_prefs(prefs)
+        if self.scope == "ALL":
+            armatures = list(bpy.data.armatures)
+        else:
+            objs = list(getattr(context, "selected_objects", []) or [])
+            if context.active_object is not None:
+                objs.append(context.active_object)
+            armatures = list({o.data for o in objs if o.type == "ARMATURE"})
+        if not armatures:
+            self.report({"WARNING"}, "No armature selected")
+            return {"CANCELLED"}
+        renamed = 0
+        for armature in armatures:
+            renamed += rename_bones_in_armature(
+                armature, settings, require_base=False, is_ignored=_is_ignored_name
+            )
+        reset_bone_cache(bpy.data)
+        self.report({"INFO"}, f"Renamed {renamed} bone(s)")
         return {"FINISHED"}
 
 

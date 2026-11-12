@@ -25,6 +25,7 @@ from .ops import (
     NCT_OT_fix_all_violations,
     NCT_OT_fix_selected_violation,
     NCT_OT_hierarchy_rename,
+    NCT_OT_normalize_bones,
     NCT_OT_preset_delete,
     NCT_OT_preset_import,
     NCT_OT_switch_scene_to_preset,
@@ -63,6 +64,29 @@ def _icon_for_data_type(collection_name: str) -> str:
     return _DATA_TYPE_ICONS.get(collection_name, "DOT")
 
 
+def _draw_bone_settings(layout, prefs) -> None:
+    box = layout.box()
+    header = box.row(align=True)
+    header.prop(prefs, "live_rename_bones", text="Live Rename Bones", icon="BONE_DATA")
+    col = box.column(align=True)
+    col.active = bool(prefs.live_rename_bones)
+    row = col.row(align=True)
+    row.prop(prefs, "bone_separator_style", text="")
+    if prefs.bone_separator_style == "CUSTOM":
+        row.prop(prefs, "bone_custom_separator", text="")
+    row.prop(prefs, "bone_padding", text="Pad")
+    col.prop(prefs, "bone_keep_side_last")
+    sep = {"UNDERSCORE": "_", "DOT": ".", "DASH": "-", "SPACE": " "}.get(
+        prefs.bone_separator_style, prefs.bone_custom_separator or "_"
+    )
+    num = f"{1:0{max(1, prefs.bone_padding)}d}"
+    side = f"{sep}{num}.L" if prefs.bone_keep_side_last else f".L{sep}{num}"
+    col.label(text=f"Bone.001 -> Bone{sep}{num}   Arm.L.001 -> Arm{side}", icon="INFO")
+    row = box.row(align=True)
+    row.operator(NCT_OT_normalize_bones.bl_idname, text="Fix Selected", icon="BONE_DATA").scope = "SELECTED"
+    row.operator(NCT_OT_normalize_bones.bl_idname, text="Fix All", icon="ARMATURE_DATA").scope = "ALL"
+
+
 def _on_active_preset_changed(self, context):
     """Keep editor fields in sync when preset dropdown changes."""
     try:
@@ -96,6 +120,8 @@ class NCT_PT_tools(Panel):
                 toggle=True,
                 icon="CHECKMARK" if enabled else "PAUSE",
             )
+            if hasattr(prefs, "live_rename_bones"):
+                _draw_bone_settings(layout, prefs)
         layout.separator(factor=0.5)
 
         preset_box = layout.box()
@@ -273,6 +299,39 @@ class NamingConventionPreferences(AddonPreferences):
         default=True,
         update=_on_live_renaming_toggled,
     )
+    live_rename_bones: BoolProperty(
+        name="Live Rename Bones",
+        description="Also rename new/duplicated/extruded bones (Bone.001 -> Bone_01) while Live Rename is on",
+        default=True,
+        update=_on_live_renaming_toggled,
+    )
+    bone_separator_style: EnumProperty(
+        name="Bone Separator",
+        description="Separator between bone name and number",
+        items=(
+            ("UNDERSCORE", "Underscore (_)", "Bone_01"),
+            ("DASH", "Dash (-)", "Bone-01"),
+            ("SPACE", "Space ( )", "Bone 01"),
+            ("CUSTOM", "Custom", "Use your own separator"),
+        ),
+        default="UNDERSCORE",
+    )
+    bone_custom_separator: StringProperty(name="Custom Bone Separator", default="_", maxlen=8)
+    bone_padding: IntProperty(
+        name="Bone Number Padding",
+        description="Digits in the bone number (2 = _01, 3 = _001)",
+        default=2,
+        min=1,
+        max=8,
+    )
+    bone_keep_side_last: BoolProperty(
+        name="Keep .L/.R at End",
+        description=(
+            "Put the number before mirror side markers (Arm_01.L instead of Arm.L_01) "
+            "so X-Mirror and Symmetrize still pair left/right bones"
+        ),
+        default=True,
+    )
     separator_style: EnumProperty(
         name="Suffix Separator",
         description="Separator between the base name and numeric suffix",
@@ -323,6 +382,8 @@ class NamingConventionPreferences(AddonPreferences):
         )
         if hasattr(self, "custom_ignore_prefixes"):
             col.prop(self, "custom_ignore_prefixes", text="Ignore Prefixes")
+        layout.separator(factor=0.5)
+        _draw_bone_settings(layout, self)
 
         layout.separator(factor=1.0)
         editor_box = layout.box()
